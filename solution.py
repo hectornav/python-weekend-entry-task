@@ -7,7 +7,7 @@ __author__:Hector Navarro-Barboza
 import argparse
 from csv import DictReader
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class SearchFlight:
@@ -29,7 +29,11 @@ class SearchFlight:
                 reader = DictReader(f)
                 for flight in reader:
                     flights.append(flight)
-            return flights
+            data = flights.copy()
+            for f in data:
+                if int(f['bags_allowed']) < self.bags:
+                    data.remove(f)
+            return data
         except:
             print('Data path is not valid or doesnt exist')
 
@@ -48,7 +52,60 @@ class SearchFlight:
                 return print(f'Your origin fligth {self.origin} or destination {self.destination} is not in data')
         except:
             print('Data path is not valid or doesnt exist')
+    
+    def layover_request(self, arrival_time, departure_time):
+        '''
+        Return True/False if layover is achieved
+        :arrival_time: dictionary of dates
+        :departure_time: dictionary of dates
+        '''
+        req_l = timedelta(hours=1) <= datetime.fromisoformat(departure_time["departure"]) -\
+                        datetime.fromisoformat(arrival_time["arrival"]) <= timedelta(hours=6)
+        return req_l
+
+
+    def flights_connected(self, trips, data):
+        con_list = []
+        for x in data:
+            if x['origin'] == trips[len(trips) - 1]['destination']:
+                if self.layover_request(trips[len(trips) - 1], x):
+                    check = True
+                    for y in trips:                            # no repeating airports
+                        if x['destination'] == y['origin']:
+                            check = False
+                            break
+                    if check:
+                        con_list.append(x)
+ 
+        return con_list
+
+    def one_way_flights(self):
+        direct_flights = []
+        flights_w_conection = []
+        for i in self.read_data():
+            if i['origin'] == self.origin:
+                if i['destination'] == self.destination:
+                    direct_flights.append([i])
+                else:
+                    flights_w_conection.append([i])
+
+
+        i = 0
+        while flights_w_conection:
+            departure_list = self.flights_connected(flights_w_conection[i], self.read_data())
+            if not departure_list:
+                flights_w_conection.pop(i)
+            else:
+                for j in departure_list:
+                    if j['destination'] == self.destination:
+                        direct_flights.append([*flights_w_conection[i], j])
+                    else:
+                        flights_w_conection.append([*flights_w_conection[i], j])
+                flights_w_conection.pop(i)
+
         
+        return direct_flights
+
     def find_route(self):
         try:
             self.is_valid()
@@ -88,31 +145,35 @@ class SearchFlight:
                         flight_back["travel_time"] = str(datetime.fromisoformat(j["arrival"]) - datetime.fromisoformat(j["departure"]))
                         routes['go'] = flight_go
                         routes['back'] = flight_back
+                        route.append(routes)
                         
                     else:
                         pass
-                route.append(routes)
-                print(json.dumps(route))
-                return json.dumps(route)
+                
+                print(json.dumps(route, indent=4))
+                return json.dumps(route, indent=4)
 
             else:
-                avail_flights = []
-                for i, flight in enumerate(self.read_data()):
-                    if flight["origin"] == self.origin and int(flight["bags_allowed"]) >= self.bags and flight['destination']==self.destination:
-                        avail_flights.append(self.read_data()[i])
-                new=[]
-                flight_ = {"flights":{}}
-                for f in avail_flights:
-                    flight_['flights'] = f
-                    flight_["bags_allowed"] = int(f["bags_allowed"])
-                    flight_["bags_count"] = self.bags
-                    flight_["destination"] = self.destination
-                    flight_["origin"] = self.origin
-                    flight_["total_price"] = float(f["base_price"]) + int(f["bag_price"])*self.bags
-                    flight_["travel_time"] = str(datetime.fromisoformat(f["arrival"]) - datetime.fromisoformat(f["departure"]))
-                new.append(flight_)
-                print(json.dumps(new))
-            return json.dumps(new)
+                fly = self.one_way_flights()
+                complete_fligths = []          
+                for i,f in enumerate(fly):
+                    tot_price = 0
+                    tot_travel_time = timedelta(hours=0,minutes=0,seconds=0)
+                    for j in f:
+                        tot_price += float(j['base_price']) + float(j['bag_price'])*self.bags
+                        tot_travel_time += datetime.fromisoformat(j["arrival"]) - datetime.fromisoformat(j["departure"])
+                    flights_found ={
+                        'flights': f,
+                        'origin': self.origin,
+                        'destination': self.destination,
+                        'bags_allowed': f[0]['bags_allowed'],
+                        'bags_count': self.bags,
+                        'total_price': tot_price,
+                        'travel_time': str(tot_travel_time)
+                    }
+                    complete_fligths.append(flights_found)
+                print(json.dumps(complete_fligths, indent=4))
+            return json.dumps(complete_fligths, indent=4)
         except:
             print('Data path is not valid or doesnt exist')
 
@@ -134,4 +195,5 @@ if __name__ == '__main__':
                            input_args['destination'],\
                            input_args['bags'],\
                            input_args['return'])
+    #flights.find_route()
     flights.find_route()
